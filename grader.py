@@ -23,9 +23,9 @@ else:
 
 def run(param):
     try:
-        generator = subprocess.Popen("./generator_mac 12582912 a.txt".split(), stdout=subprocess.DEVNULL)
+        generator = subprocess.Popen("./generator 12582912 a.txt".split(), stdout=subprocess.DEVNULL)
         generator.wait()
-        cmd = "%s/Receiver_mac -p 50001 -s %d -d %d -f %d temp.txt" % (args.inpath,
+        cmd = "%s/Receiver -p 50001 -s %d -d %d -f %d temp.txt" % (args.inpath,
                                                                    param["synloss"], param["dataloss"], param["finloss"])
         receiver = subprocess.Popen(cmd.split(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         if args.c:
