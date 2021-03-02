@@ -149,9 +149,11 @@ class Handler(threading.Thread):
                     continue
                 if payload is None:
                     self.reli.bytesInFly += self.reliImpl.sendData(b'', True)
+                    print(self.reli.bytesInFly)
                     self.reli.status = FINWAIT
                 else:
                     self.reli.bytesInFly += self.reliImpl.sendData(payload, False)
+                    print(self.reli.bytesInFly)
 
             timestamp = time.time()
             while len(self.reli.timerHeap) > 0:

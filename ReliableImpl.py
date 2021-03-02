@@ -1,4 +1,5 @@
 from Util import *
+from collections import deque
 
 # You can add necessary functions here
 
@@ -10,14 +11,14 @@ class ReliableImpl:
     # class Reliable in ReliableImpl.
     # 'seqNum' indicates the initail sequence number in the SYN segment.
     # 'srvSeqNum' indicates the initial sequence number in the SYNACK segment.
-    def __init__(self, reli=None, seqNum=None, srvSeqNum=None, longestAcked=None, largestSent=None, queue=None):
+    def __init__(self, reli, seqNum=None, srvSeqNum=None):
         super().__init__()
         self.reli = reli
         self.seqNum = seqNum
         self.srvAckNum = (srvSeqNum+1) % SeqNumSpace  # srvAckNum remains unchanged in this lab
-        self.largestAcked = longestAcked
-        self.largestSent = largestSent
-        self.queue = queue
+        self.largestAcked = self.srvAckNum
+        self.largestSent = seqNum
+        self.queue = deque()
 
         pass
 
@@ -67,10 +68,10 @@ class ReliableImpl:
             return 1
         return 0
 
-    def checkInWrapRange(head, tail, index):
+    def checkInWrapRange(self, head, tail, index):
         if (head<=tail & (index<head | tail<=index)):
             return 0
-        if (tail<head & (tail<=index & index < haed)):
+        if (tail<head & (tail<=index & index < head)):
             return 0
         return 1
 
@@ -89,20 +90,43 @@ class ReliableImpl:
         tail1 = self.largestSent+2
         index1 = seg.ackNum
 
-        if checkIfAcked(head1, tail1, index1) == 0:
+        if self.checkInWrapRange(head1, tail1, index1) == 0:
+            print('InWrapRange')
             return 0
 
-        bif = len(seg.payload)
+        rbif = seg.ackNum - self.largestAcked  -1
+        self.largestAcked = seg.ackNum  -1
 
-        while ~(self.queue.empty()):
-            if ~(checkIfAcked(self.queue[0])):
+        print('Bytes in Flight: ' + str(rbif))
+        print('largestAcked: ' + str(self.largestAcked))
+
+        myIn = 0
+        if (bool(self.queue)):
+            myIn = 1
+            print('Queue not empty')
+        else:
+            print('QUEUE EMPTY')
+
+
+        while myIn == 1:
+            if ~(self.checkInWrapRange(head1,tail1,index1)):
                 break
-            self.queue[0].reli.cancel()
-            self.queue.get()
+            self.queue.get().cancel()
+            myIn = 0
+            if (bool(self.queue)):
+                myIn = 1
+                print('Queue note empty')
+            else:
+                print('QUEUE EMPTY')
+
 
         self.reli.updateRWND(seg.rwnd)
+        print('RWND: ' + str(seg.rwnd))
+        print('seg.payload: ' + str(len(seg.payload)))
 
-        return bif
+
+
+        return rbif
 
     # sendData: This function is called when a piece of payload should be sent out.
     # You can call Segment.pack in Util.py to encapsulate a segment and
@@ -117,20 +141,52 @@ class ReliableImpl:
         if isFin:
             putIn = 1
 
-        checkSeg = Segment.pack(self.seqNum, self.srvAckNum, 0, 0, 0, putIn, 0, payload)
-        cksum = checksum(checkSeg)
-        mySeg = Segment.pack(self.seqNum, self.srvAckNum, 0, 0, 0, putIn, cksum, payload)        
+        bif = len(payload)
+        print('payload len:' + str(bif))
+
+        checkSeg = Segment.pack((self.largestSent+1), (self.srvAckNum+1), 0, 0, 0, putIn, 0, payload)
+        cksum = self.checksum(checkSeg)
+        print('checksum:' + str(cksum))
+        mySeg = Segment.pack((self.largestSent+1), (self.srvAckNum+1), 0, 0, 0, putIn, (cksum), payload)        
+        print(mySeg)
+
+        rto = 3
+
+        time = self.reli.setTimer(rto,self.retransmission,[self.seqNum,mySeg,rto,bif]) # 5 seconds before retransmission
+            
+        print('time:' + str(rto))
+
+        pack = [time,self.seqNum,rto,bif]
+
+        self.queue.append(pack)
+
+        self.seqNum = self.seqNum + bif
+
+        if (self.seqNum >= self.largestSent):
+            self.largestSent = self.seqNum 
+
+        print('seqNum: ' + str(self.seqNum))
+        print('largestSent: ' + str(self.largestSent))
+
         self.reli.sendto(mySeg)
-
-        self.reli.setTimer(3,retransmission,[q[0]],{arg: 1}) # 5 seconds before retransmission
-        self.seqNum = self.seqNum + len(q)
-
-        return len(payload)
+        return bif
 
     # retransmission: A callback function for retransmission when you call
     # self.reli.setTimer.
     # In Python, you are allowed to modify the arguments of this function.
-    def retransmission(self, seqNum):
-        self.reli.setTimer(6, self.retransmission,send)
-        self.reli.sendto(seqNum)
+    def retransmission(self, seqNum, mySeg, rto, lenpayload):
+
+        print("retransmission")
+        print('time:' + str(rto))
+
+        # head1 = self.largestAcked+1
+        # tail1 = self.largestSent+2
+        # index1 = seqNum
+
+        # if self.checkInWrapRange(head1, tail1, index1) == 0:
+        #     print('InWrapRange')
+        #     return 0
+
+        self.reli.setTimer(2*rto, self.retransmission,[seqNum,mySeg,rto,lenpayload])
+        self.reli.sendto(mySeg)
         pass
