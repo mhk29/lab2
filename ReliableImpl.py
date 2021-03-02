@@ -16,10 +16,10 @@ class ReliableImpl:
         self.reli = reli
         self.seqNum = seqNum
         self.srvAckNum = (srvSeqNum+1) % SeqNumSpace  # srvAckNum remains unchanged in this lab
-        self.largestAcked = self.srvAckNum
+        self.largestAcked = 1
         self.largestSent = seqNum
         self.queue = deque()
-
+        self.rto = 0.3
         pass
 
     # checksum: 16-bit Internet checksum (refer to RFC 1071 for calculation)
@@ -69,9 +69,9 @@ class ReliableImpl:
         return 0
 
     def checkInWrapRange(self, head, tail, index):
-        if (head<=tail & (index<head | tail<=index)):
+        if (head<=tail and (index<head or tail<=index)):
             return 0
-        if (tail<head & (tail<=index & index < head)):
+        if (tail<head and (tail<=index and index < head)):
             return 0
         return 1
 
@@ -85,6 +85,7 @@ class ReliableImpl:
     # 'seg' is an instance of class Segment (see Util.py)
     # 'isFin'=True means 'seg' is a FINACK, otherwise it is an ACK.
     def recvAck(self, seg, isFin):
+        print("RECVACK RECVACK RECVACK RECVACK")
 
         head1 = self.largestAcked+1
         tail1 = self.largestSent+2
@@ -95,9 +96,12 @@ class ReliableImpl:
             return 0
 
         rbif = seg.ackNum - self.largestAcked  -1
+        print("Old largestAcked: " + str(self.largestAcked))
+
         self.largestAcked = seg.ackNum  -1
 
         print('Bytes in Flight: ' + str(rbif))
+        print('ackNum: ' + str(seg.ackNum))
         print('largestAcked: ' + str(self.largestAcked))
 
         myIn = 0
@@ -109,9 +113,11 @@ class ReliableImpl:
 
 
         while myIn == 1:
+            print("here 1")
             if ~(self.checkInWrapRange(head1,tail1,index1)):
+                print("here2")
                 break
-            self.queue.get().cancel()
+            print('Timer Canceled' + str(self.queue.get()[0].cancel()))
             myIn = 0
             if (bool(self.queue)):
                 myIn = 1
@@ -122,8 +128,9 @@ class ReliableImpl:
 
         self.reli.updateRWND(seg.rwnd)
         print('RWND: ' + str(seg.rwnd))
-        print('seg.payload: ' + str(len(seg.payload)))
+        print('seg.payload: ' + str(rbif))
 
+        print("END RECVACK")
 
 
         return rbif
@@ -137,6 +144,8 @@ class ReliableImpl:
     # 'payload' is an array of bytes (type(payload)=<class 'bytes'>).
     # 'isFin'=True means a FIN segment should be sent out.
     def sendData(self, payload, isFin):
+        print("SENDDATA SENDDATA SENDDATA SENDDATA")
+
         putIn = 0
         if isFin:
             putIn = 1
@@ -150,13 +159,11 @@ class ReliableImpl:
         mySeg = Segment.pack((self.largestSent+1), (self.srvAckNum+1), 0, 0, 0, putIn, (cksum), payload)        
         print(mySeg)
 
-        rto = 3
-
-        time = self.reli.setTimer(rto,self.retransmission,[self.seqNum,mySeg,rto,bif]) # 5 seconds before retransmission
+        time = self.reli.setTimer(self.rto,self.retransmission,[self.seqNum,mySeg,self.rto,bif]) # 5 seconds before retransmission
             
-        print('time:' + str(rto))
+        print('time:' + str(self.rto))
 
-        pack = [time,self.seqNum,rto,bif]
+        pack = [time,self.seqNum,self.rto,bif]
 
         self.queue.append(pack)
 
@@ -169,6 +176,9 @@ class ReliableImpl:
         print('largestSent: ' + str(self.largestSent))
 
         self.reli.sendto(mySeg)
+
+        print("END SENDDATA")
+
         return bif
 
     # retransmission: A callback function for retransmission when you call
@@ -176,17 +186,42 @@ class ReliableImpl:
     # In Python, you are allowed to modify the arguments of this function.
     def retransmission(self, seqNum, mySeg, rto, lenpayload):
 
-        print("retransmission")
-        print('time:' + str(rto))
+        print("RETRANSMISSION RETRANSMISSION")
+        print('time:' + str(2 * self.rto))
 
-        # head1 = self.largestAcked+1
-        # tail1 = self.largestSent+2
-        # index1 = seqNum
+        head1 = self.largestAcked+1
+        tail1 = self.largestSent+2
+        index1 = seqNum
 
-        # if self.checkInWrapRange(head1, tail1, index1) == 0:
-        #     print('InWrapRange')
-        #     return 0
+        if self.checkInWrapRange(head1, tail1, index1) == 0:
+            print('InWrapRange')
+            return 0
 
-        self.reli.setTimer(2*rto, self.retransmission,[seqNum,mySeg,rto,lenpayload])
+        print(self.largestAcked)
+        print(seqNum)
+
+        if seqNum < self.largestAcked + 1:
+            return 0
+
+        q = self.queue
+
+        myIn = 0
+        if (bool(q)):
+            myIn = 1
+            print('Queue not empty')
+        else:
+            print('QUEUE EMPTY')
+
+        for x in range(len(q)):
+            print("here 1")
+            if (self.queue[x][1] == seqNum):
+                print('Timer Canceled' + str(self.queue[x][0].cancel()))
+                break
+
+        self.reli.setTimer(2*self.rto, self.retransmission,[seqNum,mySeg,2*self.rto,lenpayload])
         self.reli.sendto(mySeg)
+
+        print("END RETRANSMISSION")
+
+
         pass
